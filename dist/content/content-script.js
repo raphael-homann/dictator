@@ -30,6 +30,7 @@
     language: "fr",
     microphoneDeviceId: "",
     audioSensitivity: 1.8,
+    lockInputDuringDictation: true,
     sites: {},
     usage: {
       updatedAt: 0,
@@ -115,6 +116,38 @@
       return fromAttrs || element.tagName.toLowerCase();
     }
     return element.getAttribute("aria-label") || element.tagName.toLowerCase();
+  }
+  function lockEditable(element) {
+    const state = {
+      contentEditableAttr: element.getAttribute("contenteditable"),
+      ariaReadonlyAttr: element.getAttribute("aria-readonly")
+    };
+    element.classList.add("dictator-locked-target");
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      state.readOnly = element.readOnly;
+      element.readOnly = true;
+      return state;
+    }
+    element.setAttribute("contenteditable", "false");
+    element.setAttribute("aria-readonly", "true");
+    return state;
+  }
+  function unlockEditable(element, state) {
+    element.classList.remove("dictator-locked-target");
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      element.readOnly = Boolean(state.readOnly);
+      return;
+    }
+    if (state.contentEditableAttr === null) {
+      element.removeAttribute("contenteditable");
+    } else {
+      element.setAttribute("contenteditable", state.contentEditableAttr);
+    }
+    if (state.ariaReadonlyAttr === null) {
+      element.removeAttribute("aria-readonly");
+    } else {
+      element.setAttribute("aria-readonly", state.ariaReadonlyAttr);
+    }
   }
 
   // src/content/selector.ts
@@ -716,6 +749,69 @@
         gap: 6px;
       }
 
+      .dictator-btn-wrap.dictator-floating {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        left: auto !important;
+        z-index: 2147483646;
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid #cbd5e1;
+        border-radius: 999px;
+        padding: 6px 8px;
+        box-shadow: 0 10px 28px rgba(2, 6, 23, 0.28);
+      }
+
+      .dictator-remove-btn {
+        width: 18px;
+        height: 18px;
+        border: 1px solid #94a3b8;
+        background: #fff;
+        color: #475569;
+        border-radius: 999px;
+        font: 700 12px/1 'Segoe UI', sans-serif;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .dictator-remove-btn:hover {
+        border-color: #64748b;
+        color: #1f2937;
+        background: #f8fafc;
+      }
+
+      .dictator-lock-btn {
+        display: none;
+        border: 1px solid #94a3b8;
+        background: #fff;
+        color: #334155;
+        border-radius: 999px;
+        width: 20px;
+        height: 20px;
+        font: 700 12px/1 'Segoe UI', sans-serif;
+        padding: 0;
+        cursor: pointer;
+      }
+
+      .dictator-lock-btn[data-visible='true'] {
+        display: inline-block;
+      }
+
+      .dictator-lock-btn:hover {
+        border-color: #64748b;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+
+      .dictator-lock-btn[data-locked='true'] {
+        border-color: #9a3412;
+        background: #fff7ed;
+        color: #9a3412;
+      }
+
       .dictator-btn {
         border: 1px solid #166534;
         background: #ecfdf3;
@@ -747,6 +843,11 @@
         transform-origin: left center;
         transform: scaleX(0);
         transition: transform 80ms linear;
+      }
+
+      .dictator-locked-target {
+        filter: grayscale(0.2) !important;
+        opacity: 0.82 !important;
       }
 
       .dictator-meter-active {
@@ -784,6 +885,9 @@
         }
       }
       for (const [element, binding] of this.bindings) {
+        if (this.activeSession?.binding === binding) {
+          continue;
+        }
         if (!candidates.has(element) || !document.contains(element)) {
           binding.container.remove();
           this.bindings.delete(element);
@@ -824,17 +928,93 @@
       button.className = "dictator-btn";
       button.dataset.state = "idle";
       button.textContent = "Dictee";
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "dictator-remove-btn";
+      removeButton.textContent = "\xD7";
+      removeButton.title = "Supprimer la dictee pour ce champ";
+      removeButton.setAttribute("aria-label", "Supprimer la dictee pour ce champ");
       const meter = document.createElement("div");
       meter.className = "dictator-meter";
-      container.append(button, meter);
+      const lockButton = document.createElement("button");
+      lockButton.type = "button";
+      lockButton.className = "dictator-lock-btn";
+      lockButton.dataset.visible = "false";
+      lockButton.dataset.locked = "false";
+      lockButton.textContent = "\u{1F513}";
+      lockButton.title = "Verrouiller la saisie";
+      lockButton.setAttribute("aria-label", "Verrouiller la saisie");
+      container.append(button, removeButton, lockButton, meter);
       document.body.append(container);
-      const binding = { element, entryId, container, button, meter };
+      const binding = { element, entryId, container, button, removeButton, lockButton, meter };
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
         void this.toggleDictation(binding);
       });
+      removeButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void this.removeBindingConfiguration(binding);
+      });
+      lockButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.toggleLock(binding);
+      });
       this.bindings.set(element, binding);
+    }
+    async removeBindingConfiguration(binding) {
+      const confirmed = window.confirm("Supprimer la configuration de dictee pour ce champ ?");
+      if (!confirmed) {
+        return;
+      }
+      if (this.activeSession?.binding === binding) {
+        await this.stopActiveSession();
+      }
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.RemoveSelector,
+        payload: {
+          origin: window.location.origin,
+          selectorId: binding.entryId
+        }
+      });
+      if (!response.ok) {
+        binding.button.dataset.state = "error";
+        binding.button.textContent = "Erreur";
+        binding.button.title = response.error ?? "Suppression impossible";
+        return;
+      }
+      binding.container.remove();
+      this.bindings.delete(binding.element);
+    }
+    toggleLock(binding) {
+      if (!this.activeSession || this.activeSession.binding !== binding) {
+        return;
+      }
+      this.setSessionLock(this.activeSession, !this.activeSession.locked);
+    }
+    setSessionLock(session, shouldLock) {
+      if (shouldLock && !session.locked) {
+        session.lockState = lockEditable(session.binding.element);
+        session.locked = true;
+        session.binding.lockButton.dataset.locked = "true";
+        session.binding.lockButton.textContent = "\u{1F512}";
+        session.binding.lockButton.title = "Deverrouiller la saisie";
+        session.binding.lockButton.setAttribute("aria-label", "Deverrouiller la saisie");
+        return;
+      }
+      if (!shouldLock && session.locked) {
+        if (session.lockState) {
+          unlockEditable(session.binding.element, session.lockState);
+        }
+        session.lockState = null;
+        session.locked = false;
+        session.binding.lockButton.dataset.locked = "false";
+        session.binding.lockButton.textContent = "\u{1F513}";
+        session.binding.lockButton.title = "Verrouiller la saisie";
+        session.binding.lockButton.setAttribute("aria-label", "Verrouiller la saisie");
+      }
     }
     requestReposition = () => {
       if (this.repositionRaf) {
@@ -847,6 +1027,9 @@
     };
     repositionBindings() {
       for (const binding of this.bindings.values()) {
+        if (this.activeSession?.binding === binding) {
+          continue;
+        }
         if (!document.contains(binding.element)) {
           continue;
         }
@@ -874,14 +1057,23 @@
       binding.button.textContent = "Stop";
       binding.meter.classList.add("dictator-meter-active");
       binding.meter.style.transform = "scaleX(0.1)";
+      binding.lockButton.dataset.visible = "true";
+      binding.lockButton.dataset.locked = "false";
+      binding.lockButton.textContent = "\u{1F513}";
+      binding.lockButton.title = "Verrouiller la saisie";
+      this.pinBindingForListening(binding);
+      const lockState = null;
       const session = {
         provider,
         element: binding.element,
         binding,
         anchorPrefix: anchor.prefix,
         anchorSuffix: anchor.suffix,
+        locked: false,
+        lockState,
         lastLevelAt: 0,
         lastTranscriptSize: 0,
+        inactivityTimerId: null,
         usage: {
           inputTokens: 0,
           outputTokens: 0,
@@ -889,6 +1081,8 @@
         }
       };
       this.activeSession = session;
+      this.setSessionLock(session, this.settings.lockInputDuringDictation);
+      this.bumpInactivityTimer(session);
       const startConfig = {
         apiKey: this.settings.openaiApiKey,
         model: this.settings.openaiModel,
@@ -909,6 +1103,7 @@
           const nextSize = dictatedText.length;
           const growth = Math.max(0, nextSize - session.lastTranscriptSize);
           session.lastTranscriptSize = nextSize;
+          this.bumpInactivityTimer(session);
           if (Date.now() - session.lastLevelAt > 280) {
             const fallbackLevel = Math.max(0.12, Math.min(1, 0.2 + growth * 0.08 + (interim ? 0.18 : 0.06)));
             binding.meter.style.transform = `scaleX(${fallbackLevel})`;
@@ -924,6 +1119,9 @@
         },
         onLevel: (level) => {
           session.lastLevelAt = Date.now();
+          if (level > 0.18) {
+            this.bumpInactivityTimer(session);
+          }
           const displayLevel = 0.08 + Math.pow(Math.max(0, Math.min(1, level)), 0.65) * 0.92;
           binding.meter.style.transform = `scaleX(${displayLevel})`;
         },
@@ -944,6 +1142,8 @@
           if (!this.activeSession || this.activeSession.binding !== binding) {
             return;
           }
+          this.setSessionLock(session, false);
+          this.clearInactivityTimer(session);
           this.resetBinding(binding);
           this.persistUsage(session.usage);
           this.activeSession = null;
@@ -967,6 +1167,8 @@
             binding.button.dataset.state = "error";
             binding.button.textContent = "Erreur";
             binding.button.title = `${message} | ${fallbackMessage}`;
+            this.setSessionLock(session, false);
+            this.clearInactivityTimer(session);
             this.activeSession = null;
             return;
           }
@@ -974,6 +1176,8 @@
         binding.button.dataset.state = "error";
         binding.button.textContent = "Erreur";
         binding.button.title = message;
+        this.setSessionLock(session, false);
+        this.clearInactivityTimer(session);
         this.activeSession = null;
       }
     }
@@ -983,16 +1187,43 @@
       }
       const session = this.activeSession;
       this.activeSession = null;
+      this.clearInactivityTimer(session);
       await session.provider.stop();
+      this.setSessionLock(session, false);
       this.resetBinding(session.binding);
       await this.persistUsage(session.usage);
     }
     resetBinding(binding) {
+      binding.container.classList.remove("dictator-floating");
       binding.button.dataset.state = "idle";
       binding.button.textContent = "Dictee";
       binding.button.title = "";
+      binding.lockButton.dataset.visible = "false";
+      binding.lockButton.dataset.locked = "false";
+      binding.lockButton.textContent = "\u{1F513}";
+      binding.lockButton.title = "Verrouiller la saisie";
+      binding.lockButton.setAttribute("aria-label", "Verrouiller la saisie");
       binding.meter.classList.remove("dictator-meter-active");
       binding.meter.style.transform = "scaleX(0)";
+      this.requestReposition();
+    }
+    pinBindingForListening(binding) {
+      binding.container.classList.add("dictator-floating");
+    }
+    bumpInactivityTimer(session) {
+      this.clearInactivityTimer(session);
+      session.inactivityTimerId = window.setTimeout(() => {
+        if (!this.activeSession || this.activeSession !== session) {
+          return;
+        }
+        void this.stopActiveSession();
+      }, 7e3);
+    }
+    clearInactivityTimer(session) {
+      if (session.inactivityTimerId !== null) {
+        window.clearTimeout(session.inactivityTimerId);
+        session.inactivityTimerId = null;
+      }
     }
     async persistUsage(usage) {
       if (usage.totalTokens <= 0) {

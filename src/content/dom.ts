@@ -5,6 +5,12 @@ export interface DictationAnchor {
   suffix: string;
 }
 
+export interface EditableLockState {
+  readOnly?: boolean;
+  contentEditableAttr: string | null;
+  ariaReadonlyAttr: string | null;
+}
+
 const INPUT_TYPES = new Set(["", "text", "search", "email", "url", "tel", "password", "number"]);
 
 export function isEditableElement(element: Element | null): element is EditableElement {
@@ -91,4 +97,44 @@ export function getEditableLabel(element: EditableElement): string {
     return fromAttrs || element.tagName.toLowerCase();
   }
   return element.getAttribute("aria-label") || element.tagName.toLowerCase();
+}
+
+export function lockEditable(element: EditableElement): EditableLockState {
+  const state: EditableLockState = {
+    contentEditableAttr: element.getAttribute("contenteditable"),
+    ariaReadonlyAttr: element.getAttribute("aria-readonly")
+  };
+
+  element.classList.add("dictator-locked-target");
+
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    state.readOnly = element.readOnly;
+    element.readOnly = true;
+    return state;
+  }
+
+  element.setAttribute("contenteditable", "false");
+  element.setAttribute("aria-readonly", "true");
+  return state;
+}
+
+export function unlockEditable(element: EditableElement, state: EditableLockState): void {
+  element.classList.remove("dictator-locked-target");
+
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    element.readOnly = Boolean(state.readOnly);
+    return;
+  }
+
+  if (state.contentEditableAttr === null) {
+    element.removeAttribute("contenteditable");
+  } else {
+    element.setAttribute("contenteditable", state.contentEditableAttr);
+  }
+
+  if (state.ariaReadonlyAttr === null) {
+    element.removeAttribute("aria-readonly");
+  } else {
+    element.setAttribute("aria-readonly", state.ariaReadonlyAttr);
+  }
 }

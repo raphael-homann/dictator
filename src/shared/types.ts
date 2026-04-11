@@ -28,6 +28,7 @@ export interface ExtensionSettings {
   language: string;
   microphoneDeviceId: string;
   audioSensitivity: number;
+  lockInputDuringDictation: boolean;
   sites: Record<string, SiteConfig>;
   usage: UsageSnapshot;
 }
@@ -52,6 +53,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   language: "fr",
   microphoneDeviceId: "",
   audioSensitivity: 1.8,
+  lockInputDuringDictation: true,
   sites: {},
   usage: {
     updatedAt: 0,

@@ -37,6 +37,13 @@ label {
   margin-bottom: 12px;
 }
 
+.check-inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
 input,
 select,
 button {

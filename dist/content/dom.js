@@ -74,3 +74,37 @@ export function getEditableLabel(element) {
     }
     return element.getAttribute("aria-label") || element.tagName.toLowerCase();
 }
+export function lockEditable(element) {
+    const state = {
+        contentEditableAttr: element.getAttribute("contenteditable"),
+        ariaReadonlyAttr: element.getAttribute("aria-readonly")
+    };
+    element.classList.add("dictator-locked-target");
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        state.readOnly = element.readOnly;
+        element.readOnly = true;
+        return state;
+    }
+    element.setAttribute("contenteditable", "false");
+    element.setAttribute("aria-readonly", "true");
+    return state;
+}
+export function unlockEditable(element, state) {
+    element.classList.remove("dictator-locked-target");
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        element.readOnly = Boolean(state.readOnly);
+        return;
+    }
+    if (state.contentEditableAttr === null) {
+        element.removeAttribute("contenteditable");
+    }
+    else {
+        element.setAttribute("contenteditable", state.contentEditableAttr);
+    }
+    if (state.ariaReadonlyAttr === null) {
+        element.removeAttribute("aria-readonly");
+    }
+    else {
+        element.setAttribute("aria-readonly", state.ariaReadonlyAttr);
+    }
+}

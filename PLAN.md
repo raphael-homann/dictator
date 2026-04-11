@@ -79,3 +79,9 @@ de memoriser les selecteurs par site, et de dicter via moteur natif ou OpenAI.
 - [x] Credits e-Frogg ajoutes en config, popup, logs et docs
 - [x] Correctif visualisation en page: fallback base transcription si niveau micro indisponible
 - [x] Insertion dictee a la position du curseur (prefix/suffix) + barre plus reactive
+- [x] Mode optionnel verrouillage saisie pendant dictee (par defaut active) + indicateur LOCK
+- [x] Ajout bouton croix a cote de Dictee pour supprimer la configuration du champ
+- [x] Fiabilisation positionnement: bouton epingle en mode flottant pendant ecoute
+- [x] Arret automatique de la dictee apres inactivite (~7s)
+- [x] Confirmation avant suppression de configuration (bouton croix)
+- [x] Bouton verrou cliquable (🔒/🔓) pour lock/unlock en cours de dictee

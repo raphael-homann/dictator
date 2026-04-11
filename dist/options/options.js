@@ -9,6 +9,7 @@ const openaiApiKeyEl = document.querySelector("#openaiApiKey");
 const microphoneEl = document.querySelector("#microphone");
 const audioSensitivityEl = document.querySelector("#audioSensitivity");
 const audioSensitivityValueEl = document.querySelector("#audioSensitivityValue");
+const lockInputDuringDictationEl = document.querySelector("#lockInputDuringDictation");
 const refreshMicsBtn = document.querySelector("#refreshMicsBtn");
 const testMicBtn = document.querySelector("#testMicBtn");
 const micTestBarEl = document.querySelector("#micTestBar");
@@ -162,6 +163,9 @@ function renderForm(settings) {
         audioSensitivityEl.value = String(clampSensitivity(settings.audioSensitivity));
     }
     renderSensitivityValue(clampSensitivity(settings.audioSensitivity));
+    if (lockInputDuringDictationEl) {
+        lockInputDuringDictationEl.checked = settings.lockInputDuringDictation;
+    }
     void populateMicrophones(settings.microphoneDeviceId);
     renderSelectors(settings);
     renderUsage(settings);
@@ -177,7 +181,8 @@ async function save() {
         language: languageEl?.value.trim() || "fr",
         openaiApiKey: openaiApiKeyEl?.value.trim() ?? "",
         microphoneDeviceId: microphoneEl?.value ?? "",
-        audioSensitivity: getSensitivityFromForm()
+        audioSensitivity: getSensitivityFromForm(),
+        lockInputDuringDictation: lockInputDuringDictationEl?.checked ?? true
     };
     const response = (await chrome.runtime.sendMessage({
         type: MessageType.UpdateSettings,
