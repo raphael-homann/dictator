@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dictator - Configuration</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <h1>Configuration Dictator</h1>
+
+      <section class="card">
+        <h2>Moteur</h2>
+        <label>
+          Provider
+          <select id="provider">
+            <option value="native">Natif navigateur</option>
+            <option value="openai">OpenAI Realtime</option>
+          </select>
+        </label>
+
+        <label>
+          Modele OpenAI
+          <select id="openaiModel"></select>
+        </label>
+
+        <label>
+          Modele transcription
+          <select id="transcriptionModel"></select>
+        </label>
+
+        <label>
+          Langue transcription
+          <input id="language" type="text" placeholder="fr" />
+        </label>
+
+        <label>
+          Cle API OpenAI (stockage local extension)
+          <input id="openaiApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+        </label>
+
+        <label>
+          Microphone
+          <select id="microphone"></select>
+        </label>
+
+        <label>
+          Sensibilite micro
+          <input id="audioSensitivity" type="range" min="0.4" max="4" step="0.1" value="1.8" />
+          <span id="audioSensitivityValue" class="muted">1.8x</span>
+        </label>
+
+        <div class="actions">
+          <button id="refreshMicsBtn" type="button">Rafraichir micros</button>
+          <button id="testMicBtn" type="button">Tester</button>
+          <button id="saveBtn" type="button">Enregistrer</button>
+        </div>
+        <div class="mic-test">
+          <div id="micTestBar" class="mic-test-bar"></div>
+        </div>
+        <p id="saveStatus" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card">
+        <h2>Sites et selecteurs</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Site</th>
+              <th>Selecteur</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="selectorsBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Usage OpenAI</h2>
+        <p id="usageInfo" class="muted"></p>
+        <p class="muted">Note: ce suivi est une estimation basee sur les evenements de session, pas un quota facture officiel.</p>
+      </section>
+
+      <p class="credits">
+        Copyright (c) e-Frogg -
+        <a href="https://www.e-frogg.com" target="_blank" rel="noreferrer">www.e-Frogg.com</a>
+      </p>
+    </main>
+
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>

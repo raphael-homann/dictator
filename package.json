@@ -1,0 +1,17 @@
+{
+  "name": "dictator-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc -p tsconfig.json && node scripts/copy-static.mjs && npm run bundle:content",
+    "bundle:content": "esbuild src/content/content-script.ts --bundle --format=iife --platform=browser --target=chrome114 --outfile=dist/content/content-script.js",
+    "watch": "tsc -w -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.292",
+    "esbuild": "^0.25.4",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Dictator",
+  "description": "Ajoute un bouton de dictee sur les champs de texte.",
+  "version": "0.1.0",
+  "permissions": ["storage", "tabs", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>", "https://api.openai.com/*"],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Dictator"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

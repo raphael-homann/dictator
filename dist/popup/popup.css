@@ -1,0 +1,83 @@
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  background: linear-gradient(145deg, #f4f8f2, #eef4fa);
+  color: #1f2937;
+}
+
+.popup {
+  width: 300px;
+  padding: 14px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.muted {
+  margin: 0 0 8px;
+  color: #5b6878;
+  font-size: 12px;
+}
+
+.hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.hint-ok {
+  background: #eaf7ef;
+  color: #14532d;
+  border: 1px solid #b9e3c6;
+}
+
+.hint-ko {
+  background: #fbecec;
+  color: #842029;
+  border: 1px solid #f2c0c5;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: #1f6feb;
+  color: #fff;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #175bc2;
+}
+
+button:disabled {
+  background: #9aa8be;
+  cursor: not-allowed;
+}
+
+.status {
+  min-height: 18px;
+  margin: 10px 0;
+  font-size: 12px;
+  color: #0f5132;
+}
+
+.link {
+  color: #1f6feb;
+  font-size: 13px;
+}
+
+.credits {
+  margin: 8px 0 0;
+  color: #5b6878;
+  font-size: 11px;
+}
+
+.credits a {
+  color: #1f6feb;
+}
