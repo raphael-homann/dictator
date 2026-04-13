@@ -4,6 +4,7 @@ export interface DictationCallbacks {
   onTranscript: (committed: string, interim: string) => void;
   onLevel: (level: number) => void;
   onUsage?: (usage: { inputTokens: number; outputTokens: number; totalTokens: number }) => void;
+  onDebug?: (message: string) => void;
   onWarning?: (message: string) => void;
   onError: (message: string) => void;
   onStop: () => void;

@@ -1,5 +1,8 @@
 import { MessageType } from "../shared/messages.js";
 import { DEFAULT_OPENAI_MODELS, DEFAULT_TRANSCRIPTION_MODELS } from "../shared/types.js";
+import { buildDictationAnchor, setEditableText } from "../content/dom.js";
+import { NativeDictationProvider } from "../content/providers/native-provider.js";
+import { OpenAIRealtimeProvider } from "../content/providers/openai-provider.js";
 console.info("[Dictator/Config] Copyright (c) e-Frogg - https://www.e-frogg.com");
 const providerEl = document.querySelector("#provider");
 const openaiModelEl = document.querySelector("#openaiModel");
@@ -12,17 +15,50 @@ const audioSensitivityValueEl = document.querySelector("#audioSensitivityValue")
 const lockInputDuringDictationEl = document.querySelector("#lockInputDuringDictation");
 const refreshMicsBtn = document.querySelector("#refreshMicsBtn");
 const testMicBtn = document.querySelector("#testMicBtn");
+const testDictationBtn = document.querySelector("#testDictationBtn");
+const dictationTestFieldEl = document.querySelector("#dictationTestField");
 const micTestBarEl = document.querySelector("#micTestBar");
 const saveBtn = document.querySelector("#saveBtn");
 const saveStatusEl = document.querySelector("#saveStatus");
 const selectorsBodyEl = document.querySelector("#selectorsBody");
 const usageInfoEl = document.querySelector("#usageInfo");
+const debugProviderRequestedEl = document.querySelector("#debugProviderRequested");
+const debugProviderActiveEl = document.querySelector("#debugProviderActive");
+const debugDurationEl = document.querySelector("#debugDuration");
+const debugStartLatencyEl = document.querySelector("#debugStartLatency");
+const debugFirstTranscriptLatencyEl = document.querySelector("#debugFirstTranscriptLatency");
+const debugWordsEl = document.querySelector("#debugWords");
+const debugTokensEl = document.querySelector("#debugTokens");
+const debugLogEl = document.querySelector("#debugLog");
+const debugLevelEl = document.querySelector("#debugLevel");
+const MAX_DEBUG_LOG_LINES = 140;
 let currentSettings = null;
 let testMicStream = null;
 let testMicAudioContext = null;
 let testMicAnalyser = null;
 let testMicData = null;
 let testMicRaf = 0;
+let testDictationProvider = null;
+let testDictationField = null;
+let testDictationAnchorPrefix = "";
+let testDictationAnchorSuffix = "";
+let testDictationStartedAt = 0;
+let debugTickerId = 0;
+let debugLogLines = ["[debug] Pret pour un test..."];
+let debugLevel = "off";
+let debugState = {
+    requestedProvider: "-",
+    activeProvider: "-",
+    running: false,
+    startedAt: 0,
+    startLatencyMs: 0,
+    firstTranscriptLatencyMs: 0,
+    words: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    transcriptUpdates: 0
+};
 function clampSensitivity(value) {
     if (!Number.isFinite(value)) {
         return 1.8;
@@ -44,6 +80,116 @@ function setStatus(text, isError = false) {
     }
     saveStatusEl.textContent = text;
     saveStatusEl.style.color = isError ? "#842029" : "#0f5132";
+}
+function formatMs(value) {
+    if (!value || value < 1) {
+        return "-";
+    }
+    return `${Math.round(value)} ms`;
+}
+function formatDurationSeconds(valueMs) {
+    return `${(valueMs / 1000).toFixed(1)}s`;
+}
+function countWords(text) {
+    const normalized = text.trim();
+    if (!normalized) {
+        return 0;
+    }
+    return normalized.split(/\s+/).length;
+}
+function renderDebugPanel() {
+    if (debugProviderRequestedEl) {
+        debugProviderRequestedEl.textContent = debugState.requestedProvider;
+    }
+    if (debugProviderActiveEl) {
+        debugProviderActiveEl.textContent = debugState.activeProvider;
+    }
+    if (debugDurationEl) {
+        const elapsed = debugState.running && debugState.startedAt ? Date.now() - debugState.startedAt : 0;
+        debugDurationEl.textContent = formatDurationSeconds(Math.max(0, elapsed));
+    }
+    if (debugStartLatencyEl) {
+        debugStartLatencyEl.textContent = formatMs(debugState.startLatencyMs);
+    }
+    if (debugFirstTranscriptLatencyEl) {
+        debugFirstTranscriptLatencyEl.textContent = formatMs(debugState.firstTranscriptLatencyMs);
+    }
+    if (debugWordsEl) {
+        debugWordsEl.textContent = String(debugState.words);
+    }
+    if (debugTokensEl) {
+        debugTokensEl.textContent = `${debugState.inputTokens} / ${debugState.outputTokens} / ${debugState.totalTokens}`;
+    }
+    if (debugLogEl) {
+        if (debugLevel === "off") {
+            debugLogEl.textContent = "[debug] Logs desactives (choisir Basique ou Avance).";
+            return;
+        }
+        debugLogEl.textContent = debugLogLines.join("\n");
+        debugLogEl.scrollTop = debugLogEl.scrollHeight;
+    }
+}
+function appendDebugLog(message) {
+    if (debugLevel === "off") {
+        return;
+    }
+    const timestamp = new Date().toLocaleTimeString();
+    debugLogLines.push(`[${timestamp}] ${message}`);
+    if (debugLogLines.length > MAX_DEBUG_LOG_LINES) {
+        debugLogLines = debugLogLines.slice(debugLogLines.length - MAX_DEBUG_LOG_LINES);
+    }
+    renderDebugPanel();
+}
+function appendVerboseDebugLog(message) {
+    if (debugLevel !== "verbose") {
+        return;
+    }
+    appendDebugLog(message);
+}
+function stopDebugTicker() {
+    if (!debugTickerId) {
+        return;
+    }
+    window.clearInterval(debugTickerId);
+    debugTickerId = 0;
+}
+function startDebugTicker() {
+    stopDebugTicker();
+    debugTickerId = window.setInterval(() => {
+        renderDebugPanel();
+    }, 250);
+}
+function beginDebugSession(requestedProvider) {
+    debugState = {
+        requestedProvider,
+        activeProvider: requestedProvider,
+        running: true,
+        startedAt: Date.now(),
+        startLatencyMs: 0,
+        firstTranscriptLatencyMs: 0,
+        words: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        transcriptUpdates: 0
+    };
+    debugLogLines = ["[debug] Nouvelle session de test."];
+    startDebugTicker();
+    renderDebugPanel();
+}
+function getDictationSettingsFromForm() {
+    return {
+        provider: (providerEl?.value ?? currentSettings?.provider ?? "native"),
+        apiKey: openaiApiKeyEl?.value.trim() ?? "",
+        model: openaiModelEl?.value || DEFAULT_OPENAI_MODELS[0],
+        transcriptionModel: transcriptionModelEl?.value || DEFAULT_TRANSCRIPTION_MODELS[0],
+        language: languageEl?.value.trim() || "fr",
+        microphoneDeviceId: microphoneEl?.value ?? "",
+        audioSensitivity: getSensitivityFromForm()
+    };
+}
+function createDictationProvider(provider) {
+    return provider === "openai" ? new OpenAIRealtimeProvider() : new NativeDictationProvider();
 }
 function fillSelect(select, values) {
     if (!select) {
@@ -219,8 +365,33 @@ function stopMicTest() {
         micTestBarEl.style.transform = "scaleX(0.02)";
     }
     if (testMicBtn) {
-        testMicBtn.textContent = "Tester";
+        testMicBtn.textContent = "Tester micro";
     }
+}
+async function stopDictationTest() {
+    const provider = testDictationProvider;
+    testDictationProvider = null;
+    testDictationField = null;
+    testDictationAnchorPrefix = "";
+    testDictationAnchorSuffix = "";
+    testDictationStartedAt = 0;
+    debugState.running = false;
+    stopDebugTicker();
+    if (testDictationBtn) {
+        testDictationBtn.textContent = "Tester dictee";
+    }
+    if (micTestBarEl) {
+        micTestBarEl.style.transform = "scaleX(0.02)";
+    }
+    if (provider) {
+        try {
+            await provider.stop();
+        }
+        catch {
+            // ignore stop errors during teardown
+        }
+    }
+    renderDebugPanel();
 }
 function tickMicTest() {
     if (!testMicAnalyser || !testMicData || !micTestBarEl) {
@@ -233,7 +404,7 @@ function tickMicTest() {
     }
     const average = total / testMicData.length;
     const normalized = Math.max(0, Math.min(1, average / 255));
-    const boosted = Math.pow(normalized, 0.55);
+    const boosted = Math.pow(normalized, 0.42);
     const sensitivity = getSensitivityFromForm();
     const level = Math.max(0, Math.min(1, boosted * sensitivity));
     if (boosted * sensitivity > 1) {
@@ -243,11 +414,15 @@ function tickMicTest() {
         }
         renderSensitivityValue(reduced);
     }
-    const displayLevel = 0.04 + Math.pow(level, 0.65) * 0.96;
+    const displayLevel = 0.015 + Math.pow(level, 0.5) * 0.985;
     micTestBarEl.style.transform = `scaleX(${displayLevel})`;
     testMicRaf = window.requestAnimationFrame(tickMicTest);
 }
 async function toggleMicTest() {
+    if (testDictationProvider) {
+        setStatus("Stoppe d'abord le test de dictee.", true);
+        return;
+    }
     if (testMicStream) {
         stopMicTest();
         return;
@@ -262,7 +437,8 @@ async function toggleMicTest() {
         });
         testMicAudioContext = new AudioContext();
         testMicAnalyser = testMicAudioContext.createAnalyser();
-        testMicAnalyser.fftSize = 512;
+        testMicAnalyser.fftSize = 256;
+        testMicAnalyser.smoothingTimeConstant = 0.35;
         testMicData = new Uint8Array(new ArrayBuffer(testMicAnalyser.frequencyBinCount));
         const source = testMicAudioContext.createMediaStreamSource(testMicStream);
         source.connect(testMicAnalyser);
@@ -274,6 +450,124 @@ async function toggleMicTest() {
     catch {
         stopMicTest();
         setStatus("Impossible de tester le micro (permission ou peripherique).", true);
+    }
+}
+async function toggleDictationTest() {
+    if (!dictationTestFieldEl) {
+        setStatus("Champ de test de dictee introuvable.", true);
+        return;
+    }
+    if (testDictationProvider) {
+        appendDebugLog("Arret manuel demande depuis le panneau de configuration.");
+        await stopDictationTest();
+        return;
+    }
+    stopMicTest();
+    const settings = getDictationSettingsFromForm();
+    beginDebugSession(settings.provider);
+    appendDebugLog(`Demarrage test dictee (provider demande: ${settings.provider}).`);
+    appendDebugLog(`Config active: langue=${settings.language}, micro=${settings.microphoneDeviceId ? "personnalise" : "defaut"}, sensibilite=${settings.audioSensitivity.toFixed(1)}x.`);
+    const anchor = buildDictationAnchor(dictationTestFieldEl);
+    testDictationAnchorPrefix = anchor.prefix;
+    testDictationAnchorSuffix = anchor.suffix;
+    testDictationField = dictationTestFieldEl;
+    let provider = createDictationProvider(settings.provider);
+    testDictationProvider = provider;
+    testDictationStartedAt = Date.now();
+    if (testDictationBtn) {
+        testDictationBtn.textContent = "Stop test dictee";
+    }
+    setStatus("Dictee de test en cours...");
+    const startConfig = {
+        apiKey: settings.apiKey,
+        model: settings.model,
+        transcriptionModel: settings.transcriptionModel,
+        language: settings.language,
+        microphoneDeviceId: settings.microphoneDeviceId,
+        audioSensitivity: settings.audioSensitivity,
+        target: dictationTestFieldEl
+    };
+    const callbacks = {
+        onTranscript: (committed, interim) => {
+            const activeField = testDictationField;
+            if (!activeField) {
+                return;
+            }
+            const dictatedText = [committed, interim].filter(Boolean).join(" ").trim();
+            const composedText = `${testDictationAnchorPrefix}${dictatedText}${testDictationAnchorSuffix}`;
+            setEditableText(activeField, composedText, testDictationAnchorPrefix.length + dictatedText.length);
+            debugState.words = countWords(dictatedText);
+            debugState.transcriptUpdates += 1;
+            if (!debugState.firstTranscriptLatencyMs && dictatedText.length > 0 && testDictationStartedAt) {
+                debugState.firstTranscriptLatencyMs = Date.now() - testDictationStartedAt;
+                appendDebugLog(`Premier texte recu apres ${formatMs(debugState.firstTranscriptLatencyMs)}.`);
+            }
+            if (debugState.transcriptUpdates % 6 === 0 || interim.length === 0) {
+                appendDebugLog(`Transcription #${debugState.transcriptUpdates}: ${debugState.words} mot(s), ${dictatedText.length} caractere(s).`);
+            }
+        },
+        onLevel: (level) => {
+            if (!micTestBarEl) {
+                return;
+            }
+            const displayLevel = 0.015 + Math.pow(Math.max(0, Math.min(1, level)), 0.5) * 0.985;
+            micTestBarEl.style.transform = `scaleX(${displayLevel})`;
+        },
+        onUsage: (usage) => {
+            debugState.inputTokens += usage.inputTokens;
+            debugState.outputTokens += usage.outputTokens;
+            debugState.totalTokens += usage.totalTokens;
+            appendDebugLog(`Usage OpenAI +${usage.totalTokens} tokens (in ${usage.inputTokens} / out ${usage.outputTokens}) -> total ${debugState.totalTokens}.`);
+        },
+        onDebug: (message) => {
+            appendVerboseDebugLog(message);
+        },
+        onWarning: (message) => {
+            appendDebugLog(`Avertissement provider: ${message}`);
+            setStatus(message);
+        },
+        onError: (message) => {
+            appendDebugLog(`Erreur provider: ${message}`);
+            setStatus(`Test dictee en erreur: ${message}`, true);
+            void stopDictationTest();
+        },
+        onStop: () => {
+            const elapsed = debugState.startedAt ? Date.now() - debugState.startedAt : 0;
+            appendDebugLog(`Session stoppee. Duree ${formatDurationSeconds(elapsed)}, ${debugState.words} mot(s), ${debugState.totalTokens} token(s).`);
+            void stopDictationTest();
+        }
+    };
+    try {
+        await provider.start(startConfig, callbacks);
+        debugState.startLatencyMs = Date.now() - testDictationStartedAt;
+        appendDebugLog(`Provider ${debugState.activeProvider} demarre en ${formatMs(debugState.startLatencyMs)}.`);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : "Erreur de demarrage de la dictee de test.";
+        appendDebugLog(`Echec demarrage ${settings.provider}: ${message}`);
+        if (settings.provider === "openai") {
+            const fallback = new NativeDictationProvider();
+            provider = fallback;
+            testDictationProvider = fallback;
+            debugState.activeProvider = "native";
+            setStatus(`${message} | Fallback natif active.`);
+            appendDebugLog("Fallback vers le provider natif.");
+            try {
+                await fallback.start(startConfig, callbacks);
+                debugState.startLatencyMs = Date.now() - testDictationStartedAt;
+                appendDebugLog(`Provider native demarre en ${formatMs(debugState.startLatencyMs)}.`);
+                return;
+            }
+            catch (fallbackError) {
+                const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "Fallback natif indisponible.";
+                appendDebugLog(`Echec fallback natif: ${fallbackMessage}`);
+                setStatus(`Test dictee en erreur: ${message} | ${fallbackMessage}`, true);
+                await stopDictationTest();
+                return;
+            }
+        }
+        setStatus(`Test dictee en erreur: ${message}`, true);
+        await stopDictationTest();
     }
 }
 async function refresh() {
@@ -289,13 +583,31 @@ audioSensitivityEl?.addEventListener("input", () => {
 testMicBtn?.addEventListener("click", () => {
     void toggleMicTest();
 });
+testDictationBtn?.addEventListener("click", () => {
+    void toggleDictationTest();
+});
 saveBtn?.addEventListener("click", () => {
     void save();
 });
+debugLevelEl?.addEventListener("change", () => {
+    const value = debugLevelEl.value;
+    if (value === "basic" || value === "verbose" || value === "off") {
+        debugLevel = value;
+    }
+    else {
+        debugLevel = "off";
+    }
+    renderDebugPanel();
+});
+if (debugLevelEl && (debugLevelEl.value === "off" || debugLevelEl.value === "basic" || debugLevelEl.value === "verbose")) {
+    debugLevel = debugLevelEl.value;
+}
+renderDebugPanel();
 void refresh().catch((error) => {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
     setStatus(message, true);
 });
 window.addEventListener("beforeunload", () => {
     stopMicTest();
+    void stopDictationTest();
 });

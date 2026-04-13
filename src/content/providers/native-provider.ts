@@ -35,6 +35,7 @@ export class NativeDictationProvider implements DictationProvider {
     this.committed = "";
     this.interim = "";
     this.stopping = false;
+    this.callbacks?.onDebug?.(`[native] Demarrage reconnaissance, langue=${config.language || "fr-FR"}.`);
     this.meter.setSensitivity(config.audioSensitivity);
 
     this.recognition = new SpeechCtor();
@@ -55,6 +56,9 @@ export class NativeDictationProvider implements DictationProvider {
       }
       this.interim = localInterim;
       this.callbacks?.onTranscript(this.committed, this.interim);
+      if (localInterim) {
+        this.callbacks?.onDebug?.(`[native] Delta recu (${localInterim.length} chars).`);
+      }
     };
 
     this.recognition.onerror = (event: any) => {
@@ -62,11 +66,13 @@ export class NativeDictationProvider implements DictationProvider {
       if (code === "no-speech" || code === "aborted") {
         return;
       }
+      this.callbacks?.onDebug?.(`[native] Erreur reco: ${code || "unknown"}.`);
       this.callbacks?.onError(code || "Erreur de reconnaissance native.");
     };
 
     this.recognition.onend = () => {
       this.stopMeter();
+      this.callbacks?.onDebug?.("[native] Session terminee.");
       if (!this.stopping) {
         this.callbacks?.onStop();
       }

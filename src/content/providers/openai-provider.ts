@@ -62,7 +62,7 @@ export class OpenAIRealtimeProvider implements DictationProvider {
 
       this.dataChannel = this.peerConnection.createDataChannel("oai-events");
       this.dataChannel.addEventListener("message", (event) => {
-        this.handleEvent(event.data);
+        this.handleEvent(String(event.data ?? ""));
       });
 
       const offer = await this.peerConnection.createOffer();
@@ -113,6 +113,7 @@ export class OpenAIRealtimeProvider implements DictationProvider {
       });
 
       this.sendSessionUpdate(config);
+      this.callbacks?.onDebug?.("[openai] Session WebRTC ouverte.");
     } catch (error) {
       this.cleanup(false);
       throw error;
@@ -124,48 +125,41 @@ export class OpenAIRealtimeProvider implements DictationProvider {
       return;
     }
 
-    this.dataChannel.send(
-      JSON.stringify({
-        type: "session.update",
-        session: {
-          type: "realtime",
-          model: config.model,
-          output_modalities: ["text"],
-          audio: {
-            input: {
-              format: {
-                type: "audio/pcm",
-                rate: 24000
-              },
-              transcription: {
-                model: config.transcriptionModel,
-                language: config.language || "fr"
-              },
-              turn_detection: {
-                type: "server_vad",
-                create_response: false
-              }
-            }
-          }
+    const event = {
+      type: "session.update",
+      session: {
+        input_audio_transcription: {
+          model: config.transcriptionModel,
+          language: config.language || "fr"
+        },
+        turn_detection: {
+          type: "server_vad",
+          create_response: false,
+          interrupt_response: false
         }
-      })
-    );
+      }
+    };
+
+    this.dataChannel.send(JSON.stringify(event));
+    this.callbacks?.onDebug?.(`[openai->] ${JSON.stringify(event)}`);
   }
 
   private handleEvent(raw: string): void {
     try {
+      this.callbacks?.onDebug?.(`[openai<-] ${raw}`);
       const event = JSON.parse(raw) as Record<string, unknown>;
       const type = String(event.type ?? "");
+      const lowerType = type.toLowerCase();
+      const delta = typeof event.delta === "string" ? event.delta : "";
+      const transcript = typeof event.transcript === "string" ? event.transcript.trim() : "";
 
-      if (type === "conversation.item.input_audio_transcription.delta") {
-        const delta = String(event.delta ?? "");
+      if (delta && (lowerType.includes("input_audio_transcription") || lowerType.includes("audio_transcript"))) {
         this.interim = `${this.interim}${delta}`;
         this.callbacks?.onTranscript(this.committed.trim(), this.interim.trim());
         return;
       }
 
-      if (type === "conversation.item.input_audio_transcription.completed") {
-        const transcript = String(event.transcript ?? "").trim();
+      if (transcript && (lowerType.includes("input_audio_transcription") || lowerType.includes("audio_transcript"))) {
         if (transcript) {
           this.committed = `${this.committed} ${transcript}`.trim();
         }
@@ -191,6 +185,16 @@ export class OpenAIRealtimeProvider implements DictationProvider {
           const totalTokens = parseNumber(usage.total_tokens);
           this.callbacks?.onUsage?.({ inputTokens, outputTokens, totalTokens });
         }
+      }
+
+      if (type === "error") {
+        const errorObj = event.error as Record<string, unknown> | undefined;
+        const message =
+          (typeof errorObj?.message === "string" && errorObj.message) ||
+          (typeof event.message === "string" && event.message) ||
+          "Erreur OpenAI Realtime";
+        this.callbacks?.onError(message);
+        return;
       }
     } catch {
       this.callbacks?.onError("Evenement OpenAI invalide recu.");

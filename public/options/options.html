@@ -58,11 +58,40 @@
 
         <div class="actions">
           <button id="refreshMicsBtn" type="button">Rafraichir micros</button>
-          <button id="testMicBtn" type="button">Tester</button>
+          <button id="testMicBtn" type="button">Tester micro</button>
+          <button id="testDictationBtn" type="button">Tester dictee</button>
           <button id="saveBtn" type="button">Enregistrer</button>
         </div>
         <div class="mic-test">
           <div id="micTestBar" class="mic-test-bar"></div>
+        </div>
+        <label class="dictation-test">
+          Champ de test dictee
+          <textarea id="dictationTestField" rows="4" placeholder="Clique ici, place ton curseur, puis clique sur Tester dictee..."></textarea>
+          <span class="muted">Le texte transcrit sera insere a la position du curseur.</span>
+        </label>
+        <div class="debug-panel">
+          <div class="debug-head">
+            <h3>Debug test dictee</h3>
+            <label class="debug-level">
+              Niveau logs
+              <select id="debugLevel">
+                <option value="off" selected>Off</option>
+                <option value="basic">Basique</option>
+                <option value="verbose">Avance (raw)</option>
+              </select>
+            </label>
+          </div>
+          <div class="debug-stats">
+            <span>Provider demande: <b id="debugProviderRequested">-</b></span>
+            <span>Provider actif: <b id="debugProviderActive">-</b></span>
+            <span>Duree: <b id="debugDuration">0.0s</b></span>
+            <span>Demarrage: <b id="debugStartLatency">-</b></span>
+            <span>Premier texte: <b id="debugFirstTranscriptLatency">-</b></span>
+            <span>Mots: <b id="debugWords">0</b></span>
+            <span>Tokens in/out/total: <b id="debugTokens">0 / 0 / 0</b></span>
+          </div>
+          <pre id="debugLog" class="debug-log">[debug] Pret pour un test...</pre>
         </div>
         <p id="saveStatus" class="status" role="status" aria-live="polite"></p>
       </section>
