@@ -15,6 +15,8 @@ const openaiApiKeyEl = document.querySelector<HTMLInputElement>("#openaiApiKey")
 const microphoneEl = document.querySelector<HTMLSelectElement>("#microphone");
 const audioSensitivityEl = document.querySelector<HTMLInputElement>("#audioSensitivity");
 const audioSensitivityValueEl = document.querySelector<HTMLSpanElement>("#audioSensitivityValue");
+const inactivityTimeoutEl = document.querySelector<HTMLInputElement>("#inactivityTimeout");
+const inactivityTimeoutValueEl = document.querySelector<HTMLSpanElement>("#inactivityTimeoutValue");
 const lockInputDuringDictationEl = document.querySelector<HTMLInputElement>("#lockInputDuringDictation");
 const refreshMicsBtn = document.querySelector<HTMLButtonElement>("#refreshMicsBtn");
 const testMicBtn = document.querySelector<HTMLButtonElement>("#testMicBtn");
@@ -27,6 +29,7 @@ const selectorsBodyEl = document.querySelector<HTMLTableSectionElement>("#select
 const usageInfoEl = document.querySelector<HTMLParagraphElement>("#usageInfo");
 const debugProviderRequestedEl = document.querySelector<HTMLElement>("#debugProviderRequested");
 const debugProviderActiveEl = document.querySelector<HTMLElement>("#debugProviderActive");
+const debugModelActiveEl = document.querySelector<HTMLElement>("#debugModelActive");
 const debugDurationEl = document.querySelector<HTMLElement>("#debugDuration");
 const debugStartLatencyEl = document.querySelector<HTMLElement>("#debugStartLatency");
 const debugFirstTranscriptLatencyEl = document.querySelector<HTMLElement>("#debugFirstTranscriptLatency");
@@ -40,6 +43,7 @@ type DebugLevel = "off" | "basic" | "verbose";
 interface DictationDebugState {
   requestedProvider: ExtensionSettings["provider"] | "-";
   activeProvider: ExtensionSettings["provider"] | "-";
+  activeModel: string;
   running: boolean;
   startedAt: number;
   startLatencyMs: number;
@@ -67,9 +71,11 @@ let testDictationStartedAt = 0;
 let debugTickerId = 0;
 let debugLogLines = ["[debug] Pret pour un test..."];
 let debugLevel: DebugLevel = "off";
+let autoSaveTimerId = 0;
 let debugState: DictationDebugState = {
   requestedProvider: "-",
   activeProvider: "-",
+  activeModel: "-",
   running: false,
   startedAt: 0,
   startLatencyMs: 0,
@@ -93,9 +99,27 @@ function getSensitivityFromForm(): number {
   return clampSensitivity(raw);
 }
 
+function clampInactivityTimeoutMs(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 15000;
+  }
+  return Math.max(5000, Math.min(60000, Math.round(value)));
+}
+
+function getInactivityTimeoutFromForm(): number {
+  const seconds = Number(inactivityTimeoutEl?.value ?? "15");
+  return clampInactivityTimeoutMs(seconds * 1000);
+}
+
 function renderSensitivityValue(value: number): void {
   if (audioSensitivityValueEl) {
     audioSensitivityValueEl.textContent = `${value.toFixed(1)}x`;
+  }
+}
+
+function renderInactivityTimeoutValue(valueMs: number): void {
+  if (inactivityTimeoutValueEl) {
+    inactivityTimeoutValueEl.textContent = `${Math.round(valueMs / 1000)} s`;
   }
 }
 
@@ -126,12 +150,20 @@ function countWords(text: string): number {
   return normalized.split(/\s+/).length;
 }
 
+function isTransientNetworkError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("network") || normalized.includes("reseau") || normalized.includes("timeout");
+}
+
 function renderDebugPanel(): void {
   if (debugProviderRequestedEl) {
     debugProviderRequestedEl.textContent = debugState.requestedProvider;
   }
   if (debugProviderActiveEl) {
     debugProviderActiveEl.textContent = debugState.activeProvider;
+  }
+  if (debugModelActiveEl) {
+    debugModelActiveEl.textContent = debugState.activeModel;
   }
   if (debugDurationEl) {
     const elapsed = debugState.running && debugState.startedAt ? Date.now() - debugState.startedAt : 0;
@@ -194,9 +226,11 @@ function startDebugTicker(): void {
 }
 
 function beginDebugSession(requestedProvider: ExtensionSettings["provider"]): void {
+  const model = requestedProvider === "openai" ? openaiModelEl?.value || DEFAULT_OPENAI_MODELS[0] : "native/webspeech";
   debugState = {
     requestedProvider,
     activeProvider: requestedProvider,
+    activeModel: model,
     running: true,
     startedAt: Date.now(),
     startLatencyMs: 0,
@@ -377,6 +411,11 @@ function renderForm(settings: ExtensionSettings): void {
     audioSensitivityEl.value = String(clampSensitivity(settings.audioSensitivity));
   }
   renderSensitivityValue(clampSensitivity(settings.audioSensitivity));
+  const inactivityTimeout = clampInactivityTimeoutMs(settings.inactivityTimeoutMs);
+  if (inactivityTimeoutEl) {
+    inactivityTimeoutEl.value = String(Math.round(inactivityTimeout / 1000));
+  }
+  renderInactivityTimeoutValue(inactivityTimeout);
   if (lockInputDuringDictationEl) {
     lockInputDuringDictationEl.checked = settings.lockInputDuringDictation;
   }
@@ -399,6 +438,7 @@ async function save(): Promise<void> {
     openaiApiKey: openaiApiKeyEl?.value.trim() ?? "",
     microphoneDeviceId: microphoneEl?.value ?? "",
     audioSensitivity: getSensitivityFromForm(),
+    inactivityTimeoutMs: getInactivityTimeoutFromForm(),
     lockInputDuringDictation: lockInputDuringDictationEl?.checked ?? true
   };
 
@@ -414,6 +454,17 @@ async function save(): Promise<void> {
 
   setStatus("Configuration enregistree.");
   await refresh();
+}
+
+function scheduleAutoSave(reason: string): void {
+  if (autoSaveTimerId) {
+    window.clearTimeout(autoSaveTimerId);
+  }
+  setStatus(`Sauvegarde auto (${reason})...`);
+  autoSaveTimerId = window.setTimeout(() => {
+    autoSaveTimerId = 0;
+    void save();
+  }, 220);
 }
 
 function stopMicTest(): void {
@@ -551,6 +602,7 @@ async function toggleDictationTest(): Promise<void> {
   const settings = getDictationSettingsFromForm();
   beginDebugSession(settings.provider);
   appendDebugLog(`Demarrage test dictee (provider demande: ${settings.provider}).`);
+  appendDebugLog(`Modele attendu: ${settings.provider === "openai" ? settings.model : "native/webspeech"}.`);
   appendDebugLog(
     `Config active: langue=${settings.language}, micro=${settings.microphoneDeviceId ? "personnalise" : "defaut"}, sensibilite=${settings.audioSensitivity.toFixed(1)}x.`
   );
@@ -622,6 +674,11 @@ async function toggleDictationTest(): Promise<void> {
       setStatus(message);
     },
     onError: (message: string) => {
+      if (isTransientNetworkError(message)) {
+        appendDebugLog(`Erreur reseau transitoire (non bloquante): ${message}`);
+        setStatus(`Reseau instable: ${message}`);
+        return;
+      }
       appendDebugLog(`Erreur provider: ${message}`);
       setStatus(`Test dictee en erreur: ${message}`, true);
       void stopDictationTest();
@@ -637,7 +694,9 @@ async function toggleDictationTest(): Promise<void> {
 
   try {
     await provider.start(startConfig, callbacks);
+    debugState.activeModel = "native/webspeech";
     debugState.startLatencyMs = Date.now() - testDictationStartedAt;
+    appendDebugLog(`Modele actif: ${debugState.activeModel}.`);
     appendDebugLog(`Provider ${debugState.activeProvider} demarre en ${formatMs(debugState.startLatencyMs)}.`);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erreur de demarrage de la dictee de test.";
@@ -648,6 +707,7 @@ async function toggleDictationTest(): Promise<void> {
       provider = fallback;
       testDictationProvider = fallback;
       debugState.activeProvider = "native";
+      debugState.activeModel = "native/webspeech";
       setStatus(`${message} | Fallback natif active.`);
       appendDebugLog("Fallback vers le provider natif.");
 
@@ -666,6 +726,7 @@ async function toggleDictationTest(): Promise<void> {
       }
     }
 
+    debugState.activeModel = "native/webspeech";
     setStatus(`Test dictee en erreur: ${message}`, true);
     await stopDictationTest();
   }
@@ -682,6 +743,26 @@ refreshMicsBtn?.addEventListener("click", () => {
 
 audioSensitivityEl?.addEventListener("input", () => {
   renderSensitivityValue(getSensitivityFromForm());
+});
+
+inactivityTimeoutEl?.addEventListener("input", () => {
+  renderInactivityTimeoutValue(getInactivityTimeoutFromForm());
+});
+
+providerEl?.addEventListener("change", () => {
+  scheduleAutoSave("provider");
+});
+
+openaiModelEl?.addEventListener("change", () => {
+  scheduleAutoSave("modele OpenAI");
+});
+
+transcriptionModelEl?.addEventListener("change", () => {
+  scheduleAutoSave("modele transcription");
+});
+
+openaiApiKeyEl?.addEventListener("change", () => {
+  scheduleAutoSave("cle OpenAI");
 });
 
 testMicBtn?.addEventListener("click", () => {

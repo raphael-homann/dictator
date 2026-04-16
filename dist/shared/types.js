@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = {
     language: "fr",
     microphoneDeviceId: "",
     audioSensitivity: 1.8,
+    inactivityTimeoutMs: 15000,
     lockInputDuringDictation: true,
     sites: {},
     usage: {

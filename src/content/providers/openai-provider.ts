@@ -33,6 +33,29 @@ export class OpenAIRealtimeProvider implements DictationProvider {
   private committed = "";
   private interim = "";
 
+  private mergeCommittedAndInterim(): string {
+    const base = this.committed.trim();
+    const tail = this.interim.trim();
+    if (!tail) {
+      return base;
+    }
+    if (!base) {
+      return tail;
+    }
+    return `${base} ${tail}`.trim();
+  }
+
+  private flushInterimBeforeError(): void {
+    if (!this.callbacks) {
+      return;
+    }
+    const promoted = this.mergeCommittedAndInterim();
+    if (!promoted) {
+      return;
+    }
+    this.callbacks.onTranscript(promoted, "");
+  }
+
   async start(config: DictationStartConfig, callbacks: DictationCallbacks): Promise<void> {
     if (!config.apiKey) {
       throw new Error("Cle OpenAI manquante dans la configuration.");
@@ -188,6 +211,7 @@ export class OpenAIRealtimeProvider implements DictationProvider {
       }
 
       if (type === "error") {
+        this.flushInterimBeforeError();
         const errorObj = event.error as Record<string, unknown> | undefined;
         const message =
           (typeof errorObj?.message === "string" && errorObj.message) ||
@@ -197,6 +221,7 @@ export class OpenAIRealtimeProvider implements DictationProvider {
         return;
       }
     } catch {
+      this.flushInterimBeforeError();
       this.callbacks?.onError("Evenement OpenAI invalide recu.");
     }
   }

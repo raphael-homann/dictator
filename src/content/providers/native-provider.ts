@@ -16,10 +16,25 @@ export class NativeDictationProvider implements DictationProvider {
   private committed = "";
   private interim = "";
   private stopping = false;
+  private restartTimerId: number | null = null;
+  private interimFlushTimerId: number | null = null;
+  private lastFlushedInterim = "";
   private meter = new AudioMeter((level) => {
     this.callbacks?.onLevel(level);
   });
   private meterStream: MediaStream | null = null;
+
+  private mergeCommittedAndChunk(committed: string, chunk: string): string {
+    const base = committed.trim();
+    const tail = chunk.trim();
+    if (!tail) {
+      return base;
+    }
+    if (!base) {
+      return tail;
+    }
+    return `${base} ${tail}`.trim();
+  }
 
   async start(config: DictationStartConfig, callbacks: DictationCallbacks): Promise<void> {
     const speechApi = window as unknown as {
@@ -35,6 +50,9 @@ export class NativeDictationProvider implements DictationProvider {
     this.committed = "";
     this.interim = "";
     this.stopping = false;
+    this.clearRestartTimer();
+    this.clearInterimFlushTimer();
+    this.lastFlushedInterim = "";
     this.callbacks?.onDebug?.(`[native] Demarrage reconnaissance, langue=${config.language || "fr-FR"}.`);
     this.meter.setSensitivity(config.audioSensitivity);
 
@@ -55,6 +73,7 @@ export class NativeDictationProvider implements DictationProvider {
         }
       }
       this.interim = localInterim;
+      this.lastFlushedInterim = "";
       this.callbacks?.onTranscript(this.committed, this.interim);
       if (localInterim) {
         this.callbacks?.onDebug?.(`[native] Delta recu (${localInterim.length} chars).`);
@@ -64,18 +83,30 @@ export class NativeDictationProvider implements DictationProvider {
     this.recognition.onerror = (event: any) => {
       const code = String(event.error || "");
       if (code === "no-speech" || code === "aborted") {
+        this.callbacks?.onDebug?.(`[native] Info reco: ${code}.`);
         return;
       }
-      this.callbacks?.onDebug?.(`[native] Erreur reco: ${code || "unknown"}.`);
-      this.callbacks?.onError(code || "Erreur de reconnaissance native.");
+      if (code === "network") {
+        this.callbacks?.onDebug?.("[native] Erreur reseau ignoree en mode natif (session maintenue).");
+        return;
+      }
+      this.flushInterim("error");
+      const details = this.describeErrorCode(code);
+      this.callbacks?.onDebug?.(`[native] Erreur reco: ${code || "unknown"} (${details}).`);
+      this.callbacks?.onError(`${details} (code: ${code || "unknown"})`);
     };
 
     this.recognition.onend = () => {
-      this.stopMeter();
-      this.callbacks?.onDebug?.("[native] Session terminee.");
-      if (!this.stopping) {
+      if (this.stopping) {
+        this.flushInterim("stop");
+        this.stopMeter();
+        this.clearInterimFlushTimer();
+        this.callbacks?.onDebug?.("[native] Session terminee.");
         this.callbacks?.onStop();
+        return;
       }
+      this.callbacks?.onDebug?.("[native] onend inattendu, tentative de reprise auto.");
+      this.scheduleRestart();
     };
 
     try {
@@ -92,14 +123,93 @@ export class NativeDictationProvider implements DictationProvider {
     }
 
     this.recognition.start();
+    this.startInterimFlushTimer();
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
+    this.clearRestartTimer();
+    this.clearInterimFlushTimer();
+    this.flushInterim("manual-stop");
     this.stopMeter();
     if (this.recognition) {
       this.recognition.stop();
       this.recognition = null;
+    }
+  }
+
+  private scheduleRestart(): void {
+    if (!this.recognition || this.stopping) {
+      return;
+    }
+    this.clearRestartTimer();
+    this.restartTimerId = window.setTimeout(() => {
+      this.restartTimerId = null;
+      if (!this.recognition || this.stopping) {
+        return;
+      }
+      try {
+        this.recognition.start();
+        this.callbacks?.onDebug?.("[native] Reprise auto OK.");
+      } catch {
+        this.callbacks?.onError("La reconnaissance native s'est arretee de facon inattendue.");
+        this.callbacks?.onStop();
+      }
+    }, 180);
+  }
+
+  private clearRestartTimer(): void {
+    if (this.restartTimerId !== null) {
+      window.clearTimeout(this.restartTimerId);
+      this.restartTimerId = null;
+    }
+  }
+
+  private startInterimFlushTimer(): void {
+    this.clearInterimFlushTimer();
+    this.interimFlushTimerId = window.setInterval(() => {
+      this.flushInterim("timer");
+    }, 800);
+  }
+
+  private clearInterimFlushTimer(): void {
+    if (this.interimFlushTimerId !== null) {
+      window.clearInterval(this.interimFlushTimerId);
+      this.interimFlushTimerId = null;
+    }
+  }
+
+  private flushInterim(reason: "timer" | "manual-stop" | "stop" | "error"): void {
+    const chunk = this.interim.trim();
+    if (!chunk) {
+      return;
+    }
+    if (chunk === this.lastFlushedInterim) {
+      return;
+    }
+    this.lastFlushedInterim = chunk;
+    const promotedCommitted = this.mergeCommittedAndChunk(this.committed, chunk);
+    this.callbacks?.onTranscript(promotedCommitted, "");
+    if (reason === "timer") {
+      this.callbacks?.onDebug?.("[native] Flush interim periodique.");
+    } else if (reason === "error") {
+      this.callbacks?.onDebug?.("[native] Flush interim avant erreur.");
+    }
+  }
+
+  private describeErrorCode(code: string): string {
+    switch (code) {
+      case "not-allowed":
+      case "service-not-allowed":
+        return "Acces micro ou reconnaissance refuse par le navigateur";
+      case "audio-capture":
+        return "Capture audio impossible (micro indisponible ou deja utilise)";
+      case "network":
+        return "Erreur reseau pendant la reconnaissance native";
+      case "language-not-supported":
+        return "Langue non supportee par la reconnaissance native";
+      default:
+        return "Erreur de reconnaissance vocale native";
     }
   }
 

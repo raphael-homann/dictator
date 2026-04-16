@@ -27,6 +27,27 @@ export class OpenAIRealtimeProvider {
     meter = new AudioMeter((level) => this.callbacks?.onLevel(level));
     committed = "";
     interim = "";
+    mergeCommittedAndInterim() {
+        const base = this.committed.trim();
+        const tail = this.interim.trim();
+        if (!tail) {
+            return base;
+        }
+        if (!base) {
+            return tail;
+        }
+        return `${base} ${tail}`.trim();
+    }
+    flushInterimBeforeError() {
+        if (!this.callbacks) {
+            return;
+        }
+        const promoted = this.mergeCommittedAndInterim();
+        if (!promoted) {
+            return;
+        }
+        this.callbacks.onTranscript(promoted, "");
+    }
     async start(config, callbacks) {
         if (!config.apiKey) {
             throw new Error("Cle OpenAI manquante dans la configuration.");
@@ -162,6 +183,7 @@ export class OpenAIRealtimeProvider {
                 }
             }
             if (type === "error") {
+                this.flushInterimBeforeError();
                 const errorObj = event.error;
                 const message = (typeof errorObj?.message === "string" && errorObj.message) ||
                     (typeof event.message === "string" && event.message) ||
@@ -171,6 +193,7 @@ export class OpenAIRealtimeProvider {
             }
         }
         catch {
+            this.flushInterimBeforeError();
             this.callbacks?.onError("Evenement OpenAI invalide recu.");
         }
     }

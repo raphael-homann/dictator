@@ -24,6 +24,7 @@ Extension Chrome MV3 (TypeScript) pour ajouter un bouton de dictee vocale sur de
 - cle API OpenAI
 - micro par defaut
 - sensibilite micro + bouton `Tester`
+- delai d'inactivite auto (configurable) + barre de progression pendant la dictee
 - champ de test + bouton `Tester dictee` pour lancer une vraie dictee depuis la configuration
 - panneau debug temps reel du test (provider actif, duree, mots, tokens, logs)
 - mode `Verrouiller le champ pendant la dictee` (active par defaut)

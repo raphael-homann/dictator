@@ -67,6 +67,48 @@ export function setEditableText(element, value, caretPos) {
     element.textContent = value;
     element.dispatchEvent(new Event("input", { bubbles: true }));
 }
+function getContentEditableSelectionRange(element) {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        if (element.contains(range.startContainer) && element.contains(range.endContainer)) {
+            return range;
+        }
+    }
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    return range;
+}
+export function insertEditableText(element, text) {
+    if (!text) {
+        return;
+    }
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        const value = element.value;
+        const start = element.selectionStart ?? value.length;
+        const end = element.selectionEnd ?? start;
+        const nextValue = `${value.slice(0, start)}${text}${value.slice(end)}`;
+        const nextCaret = start + text.length;
+        element.value = nextValue;
+        element.setSelectionRange(nextCaret, nextCaret);
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+    }
+    const range = getContentEditableSelectionRange(element);
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    const selection = window.getSelection();
+    if (selection) {
+        const after = document.createRange();
+        after.setStartAfter(node);
+        after.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(after);
+    }
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+}
 export function getEditableLabel(element) {
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
         const fromAttrs = element.getAttribute("aria-label") || element.placeholder || element.name || element.id;

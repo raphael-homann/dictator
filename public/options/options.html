@@ -51,6 +51,12 @@
           <span id="audioSensitivityValue" class="muted">1.8x</span>
         </label>
 
+        <label>
+          Delai d'inactivite avant arret auto
+          <input id="inactivityTimeout" type="range" min="5" max="60" step="1" value="15" />
+          <span id="inactivityTimeoutValue" class="muted">15 s</span>
+        </label>
+
         <label class="check-inline">
           <input id="lockInputDuringDictation" type="checkbox" checked />
           Verrouiller le champ pendant la dictee (recommande)
@@ -85,6 +91,7 @@
           <div class="debug-stats">
             <span>Provider demande: <b id="debugProviderRequested">-</b></span>
             <span>Provider actif: <b id="debugProviderActive">-</b></span>
+            <span>Modele actif: <b id="debugModelActive">-</b></span>
             <span>Duree: <b id="debugDuration">0.0s</b></span>
             <span>Demarrage: <b id="debugStartLatency">-</b></span>
             <span>Premier texte: <b id="debugFirstTranscriptLatency">-</b></span>
