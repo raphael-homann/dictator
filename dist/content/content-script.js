@@ -553,7 +553,7 @@
       this.clearInterimFlushTimer();
       this.interimFlushTimerId = window.setInterval(() => {
         this.flushInterim("timer");
-      }, 800);
+      }, 1500);
     }
     clearInterimFlushTimer() {
       if (this.interimFlushTimerId !== null) {
@@ -570,11 +570,14 @@
         return;
       }
       this.lastFlushedInterim = chunk;
+      if (reason === "timer") {
+        this.callbacks?.onTranscript(this.committed, chunk);
+        this.callbacks?.onDebug?.("[native] Flush interim periodique.");
+        return;
+      }
       const promotedCommitted = this.mergeCommittedAndChunk(this.committed, chunk);
       this.callbacks?.onTranscript(promotedCommitted, "");
-      if (reason === "timer") {
-        this.callbacks?.onDebug?.("[native] Flush interim periodique.");
-      } else if (reason === "error") {
+      if (reason === "error") {
         this.callbacks?.onDebug?.("[native] Flush interim avant erreur.");
       }
     }
